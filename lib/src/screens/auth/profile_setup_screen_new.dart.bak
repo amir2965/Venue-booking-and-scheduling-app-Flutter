@@ -1,0 +1,915 @@
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../models/player_profile.dart';
+import '../../models/user.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/player_provider.dart';
+import '../../providers/mongodb_provider.dart';
+import '../../utils/navigation_fixer.dart';
+import '../../widgets/venue_selection_sheet.dart';
+
+// Profile setup provider
+final profileSetupProvider =
+    StateNotifierProvider.autoDispose<ProfileSetupNotifier, ProfileSetupState>(
+        (ref) => ProfileSetupNotifier());
+
+// State class for profile setup
+class ProfileSetupState {
+  final File? profileImage;
+  final String fullName;
+  final String? gender;
+  final String skillLevel;
+  final String? location;
+  final String playStyle;
+  final Map<String, List<String>> availability;
+  final String bio;
+  final bool showInPartnerMatching;
+  final bool isFormValid;
+
+  ProfileSetupState({
+    this.profileImage,
+    this.fullName = '',
+    this.gender,
+    this.skillLevel = 'Beginner',
+    this.location,
+    this.playStyle = 'Casual',
+    this.availability = const {},
+    this.bio = '',
+    this.showInPartnerMatching = true,
+    this.isFormValid = false,
+  });
+
+  ProfileSetupState copyWith({
+    File? profileImage,
+    String? fullName,
+    String? gender,
+    String? skillLevel,
+    String? location,
+    String? playStyle,
+    Map<String, List<String>>? availability,
+    String? bio,
+    bool? showInPartnerMatching,
+    bool? isFormValid,
+  }) {
+    return ProfileSetupState(
+      profileImage: profileImage ?? this.profileImage,
+      fullName: fullName ?? this.fullName,
+      gender: gender ?? this.gender,
+      skillLevel: skillLevel ?? this.skillLevel,
+      location: location ?? this.location,
+      playStyle: playStyle ?? this.playStyle,
+      availability: availability ?? this.availability,
+      bio: bio ?? this.bio,
+      showInPartnerMatching:
+          showInPartnerMatching ?? this.showInPartnerMatching,
+      isFormValid: isFormValid ?? this.isFormValid,
+    );
+  }
+}
+
+// Notifier class to manage state
+class ProfileSetupNotifier extends StateNotifier<ProfileSetupState> {
+  ProfileSetupNotifier() : super(ProfileSetupState());
+
+  void setProfileImage(File? image) {
+    state = state.copyWith(profileImage: image);
+    validateForm();
+  }
+
+  void setFullName(String name) {
+    state = state.copyWith(fullName: name);
+    validateForm();
+  }
+
+  void setGender(String? gender) {
+    state = state.copyWith(gender: gender);
+    validateForm();
+  }
+
+  void setSkillLevel(String level) {
+    state = state.copyWith(skillLevel: level);
+    validateForm();
+  }
+
+  void setLocation(String? location) {
+    state = state.copyWith(location: location);
+    validateForm();
+  }
+
+  void setPlayStyle(String style) {
+    state = state.copyWith(playStyle: style);
+    validateForm();
+  }
+
+  void toggleAvailability(String day, String timeSlot) {
+    final currentAvailability =
+        Map<String, List<String>>.from(state.availability);
+
+    if (!currentAvailability.containsKey(day)) {
+      currentAvailability[day] = [timeSlot];
+    } else {
+      final timeSlots = List<String>.from(currentAvailability[day]!);
+      if (timeSlots.contains(timeSlot)) {
+        timeSlots.remove(timeSlot);
+      } else {
+        timeSlots.add(timeSlot);
+      }
+
+      if (timeSlots.isEmpty) {
+        currentAvailability.remove(day);
+      } else {
+        currentAvailability[day] = timeSlots;
+      }
+    }
+
+    state = state.copyWith(availability: currentAvailability);
+    validateForm();
+  }
+
+  void setBio(String bio) {
+    state = state.copyWith(bio: bio);
+    validateForm();
+  }
+
+  void toggleShowInMatching() {
+    state = state.copyWith(showInPartnerMatching: !state.showInPartnerMatching);
+    validateForm();
+  }
+
+  void validateForm() {
+    final isValid = state.fullName.isNotEmpty &&
+        (state.location?.isNotEmpty ?? false) &&
+        state.availability.isNotEmpty;
+
+    state = state.copyWith(isFormValid: isValid);
+  }
+}
+
+class ProfileSetupScreen extends ConsumerStatefulWidget {
+  const ProfileSetupScreen({Key? key}) : super(key: key);
+
+  @override
+  ConsumerState<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
+}
+
+class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animationController;
+  final _formKey = GlobalKey<FormState>();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _bioController = TextEditingController();
+  final TextEditingController _locationController = TextEditingController();
+
+  final List<String> _skillLevels = [
+    'Beginner',
+    'Intermediate',
+    'Advanced',
+    'Pro'
+  ];
+
+  final List<String> _playStyles = [
+    'Casual',
+    'Competitive',
+    'Training',
+    'Tournament'
+  ];
+
+  final List<String> _locations = [
+    'Brisbane',
+    'Gold Coast',
+    'Melbourne',
+    'Mackay',
+    'Sydney',
+    'Perth'
+  ];
+
+  final List<String> _daysOfWeek = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday'
+  ];
+
+  final List<String> _timeSlots = ['Morning', 'Afternoon', 'Evening', 'Night'];
+  final List<String> _genders = [
+    'Male',
+    'Female',
+    'Other',
+    'Prefer not to say'
+  ];
+
+  bool _isLoading = false;
+  final ImagePicker _picker = ImagePicker();
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _animationController.drive(
+      CurveTween(curve: Curves.easeIn),
+    );
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    _nameController.dispose();
+    _bioController.dispose();
+    _locationController.dispose();
+    super.dispose();
+  }
+
+  // Helper to determine skill tier from numeric skill level
+  String _getSkillTier(double skillLevel) {
+    if (skillLevel < 1.0) return 'Beginner';
+    if (skillLevel < 2.0) return 'Novice';
+    if (skillLevel < 3.0) return 'Intermediate';
+    if (skillLevel < 4.0) return 'Advanced';
+    if (skillLevel < 4.5) return 'Expert';
+    return 'Pro';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profileSetup = ref.watch(profileSetupProvider);
+    final screenSize = MediaQuery.of(context).size;
+    final isWideScreen = screenSize.width > 600;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Complete Your Profile'),
+        elevation: 0,
+        backgroundColor: Theme.of(context).colorScheme.surface,
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Center(
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth: isWideScreen ? 600 : double.infinity,
+              ),
+              padding: const EdgeInsets.all(24.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Tell us about yourself!',
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primaryContainer
+                            .withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withOpacity(0.2),
+                        ),
+                      ),
+                      child: Text(
+                        'This information helps us match you with the right players and venues.',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    _buildProfileImageSection(),
+                    const SizedBox(height: 24),
+                    _buildPersonalInfoSection(profileSetup),
+                    const SizedBox(height: 16),
+                    _buildSkillsSection(profileSetup),
+                    const SizedBox(height: 16),
+                    _buildAvailabilitySection(profileSetup),
+                    const SizedBox(height: 16),
+                    _buildBioSection(),
+                    const SizedBox(height: 24),
+                    _buildMatchingToggle(profileSetup),
+                    const SizedBox(height: 24),
+                    _buildSubmitButton(profileSetup),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileImageSection() {
+    return Center(
+      child: Stack(
+        children: [
+          CircleAvatar(
+            radius: 50,
+            backgroundImage:
+                ref.watch(profileSetupProvider).profileImage != null
+                    ? FileImage(ref.watch(profileSetupProvider).profileImage!)
+                    : null,
+            child: ref.watch(profileSetupProvider).profileImage == null
+                ? const Icon(Icons.person, size: 50)
+                : null,
+          ),
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: ElevatedButton(
+              onPressed: _showImageSourceSelector,
+              style: ElevatedButton.styleFrom(
+                shape: const CircleBorder(),
+                padding: const EdgeInsets.all(8),
+                backgroundColor: Theme.of(context).colorScheme.primary,
+              ),
+              child: Icon(
+                Icons.camera_alt,
+                color: Theme.of(context).colorScheme.onPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPersonalInfoSection(ProfileSetupState profileSetup) {
+    return Column(
+      children: [
+        TextFormField(
+          controller: _nameController,
+          decoration: const InputDecoration(
+            labelText: 'Full Name *',
+            hintText: 'Enter your full name',
+          ),
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Please enter your name';
+            }
+            return null;
+          },
+          onChanged: (value) {
+            ref.read(profileSetupProvider.notifier).setFullName(value);
+          },
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: DropdownButtonFormField<String>(
+            value: profileSetup.gender,
+            decoration: const InputDecoration(
+              labelText: 'Gender',
+            ),
+            items: _genders
+                .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                .toList(),
+            onChanged: (value) {
+              if (value != null) {
+                ref.read(profileSetupProvider.notifier).setGender(value);
+              }
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outline.withOpacity(0.5),
+            ),
+          ),
+          child: DropdownButtonFormField<String>(
+            value: profileSetup.location,
+            decoration: const InputDecoration(
+              labelText: 'Location *',
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            ),
+            items: _locations
+                .map((city) => DropdownMenuItem(
+                      value: city,
+                      child: Text(city),
+                    ))
+                .toList(),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please select your location';
+              }
+              return null;
+            },
+            onChanged: (value) {
+              if (value != null) {
+                ref.read(profileSetupProvider.notifier).setLocation(value);
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSkillsSection(ProfileSetupState profileSetup) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.sports_esports,
+                  color: Theme.of(context).colorScheme.primary, size: 20),
+              const SizedBox(width: 8),
+              Text('Gaming Profile',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                      )),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text('Skill Level',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w500)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8.0,
+            runSpacing: 8.0,
+            children: _skillLevels.map((level) {
+              final isSelected = profileSetup.skillLevel == level;
+              return ChoiceChip(
+                label: Text(level),
+                selected: isSelected,
+                showCheckmark: false,
+                labelStyle: TextStyle(
+                  color: isSelected
+                      ? Theme.of(context).colorScheme.onPrimary
+                      : Theme.of(context).colorScheme.onSurface,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+                backgroundColor: Theme.of(context).colorScheme.surface,
+                selectedColor: Theme.of(context).colorScheme.primary,
+                side: BorderSide(
+                  color: isSelected
+                      ? Colors.transparent
+                      : Theme.of(context).colorScheme.outline.withOpacity(0.5),
+                ),
+                onSelected: (selected) {
+                  if (selected) {
+                    ref.read(profileSetupProvider.notifier).setSkillLevel(level);
+                  }
+                },
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 20),
+          Text('Play Style',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w500)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8.0,
+            runSpacing: 8.0,
+            children: _playStyles.map((style) {
+              final isSelected = profileSetup.playStyle == style;
+              return ChoiceChip(
+                label: Text(style),
+                selected: isSelected,
+                showCheckmark: false,
+                labelStyle: TextStyle(
+                  color: isSelected
+                      ? Theme.of(context).colorScheme.onPrimary
+                      : Theme.of(context).colorScheme.onSurface,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+                backgroundColor: Theme.of(context).colorScheme.surface,
+                selectedColor: Theme.of(context).colorScheme.secondary,
+                side: BorderSide(
+                  color: isSelected
+                      ? Colors.transparent
+                      : Theme.of(context).colorScheme.outline.withOpacity(0.5),
+                ),
+                onSelected: (selected) {
+                  if (selected) {
+                    ref.read(profileSetupProvider.notifier).setPlayStyle(style);
+                  }
+                },
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAvailabilitySection(ProfileSetupState profileSetup) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Availability', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _daysOfWeek.length,
+          itemBuilder: (context, index) {
+            final day = _daysOfWeek[index];
+            return ExpansionTile(
+              title: Text(day),
+              children: [
+                Wrap(
+                  spacing: 8.0,
+                  children: _timeSlots.map((slot) {
+                    return FilterChip(
+                      label: Text(slot),
+                      selected:
+                          profileSetup.availability[day]?.contains(slot) ??
+                              false,
+                      onSelected: (selected) {
+                        ref
+                            .read(profileSetupProvider.notifier)
+                            .toggleAvailability(day, slot);
+                      },
+                    );
+                  }).toList(),
+                ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBioSection() {
+    return TextFormField(
+      controller: _bioController,
+      decoration: const InputDecoration(
+        labelText: 'About Me',
+        hintText: 'Tell other players about yourself',
+      ),
+      maxLines: 3,
+      onChanged: (value) {
+        ref.read(profileSetupProvider.notifier).setBio(value);
+      },
+    );
+  }
+
+  Widget _buildMatchingToggle(ProfileSetupState profileSetup) {
+    return SwitchListTile(
+      title: const Text('Show me in partner matching'),
+      subtitle: const Text(
+          'Allow other players to find you when looking for a partner'),
+      value: profileSetup.showInPartnerMatching,
+      onChanged: (value) {
+        ref.read(profileSetupProvider.notifier).toggleShowInMatching();
+      },
+    );
+  }
+
+  Widget _buildSubmitButton(ProfileSetupState profileSetup) {
+    return Container(
+      width: double.infinity,
+      height: 56,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: profileSetup.isFormValid && !_isLoading
+            ? LinearGradient(
+                colors: [
+                  Theme.of(context).colorScheme.primary,
+                  Theme.of(context).colorScheme.secondary,
+                ],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              )
+            : null,
+        color: profileSetup.isFormValid && !_isLoading
+            ? null
+            : Theme.of(context).colorScheme.surfaceVariant,
+      ),
+      child: ElevatedButton(
+        onPressed: (!profileSetup.isFormValid || _isLoading) ? null : _saveProfile,
+        style: ElevatedButton.styleFrom(
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          foregroundColor: Theme.of(context).colorScheme.onPrimary,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 16),
+        ),
+        child: _isLoading
+            ? SizedBox(
+                height: 24,
+                width: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Theme.of(context).colorScheme.onPrimary,
+                  ),
+                ),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Complete Setup',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: profileSetup.isFormValid
+                          ? Theme.of(context).colorScheme.onPrimary
+                          : Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.arrow_forward_rounded,
+                    color: profileSetup.isFormValid
+                        ? Theme.of(context).colorScheme.onPrimary
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  // Helper method to pick image from gallery or camera
+  Future<void> _pickImage(ImageSource source) async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: source,
+        imageQuality: 80,
+        maxWidth: 800,
+      );
+
+      if (image != null) {
+        // Show processing indicator
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Processing image...'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+
+        // Set the image in the provider
+        ref
+            .read(profileSetupProvider.notifier)
+            .setProfileImage(File(image.path));
+      }
+    } catch (e) {
+      debugPrint('Error picking image: $e');
+      // Show error snackbar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not select image: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  // Show image source selector dialog
+  void _showImageSourceSelector() {
+    final hasImage = ref.read(profileSetupProvider).profileImage != null;
+
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera),
+                title: const Text('Take a photo'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _pickImage(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Choose from gallery'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _pickImage(ImageSource.gallery);
+                },
+              ),
+              if (hasImage)
+                ListTile(
+                  leading: const Icon(Icons.delete, color: Colors.red),
+                  title: const Text('Remove photo',
+                      style: TextStyle(color: Colors.red)),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    // Clear the profile image
+                    ref
+                        .read(profileSetupProvider.notifier)
+                        .setProfileImage(null);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Profile photo removed'),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // Show venue selection modal
+  void _showVenueSelectionModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (context, scrollController) => VenueSelectionSheet(
+          controller: _locationController,
+          scrollController: scrollController,
+        ),
+      ),
+    );
+  }
+
+  // Save the profile data
+  Future<void> _saveProfile() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    final state = ref.read(profileSetupProvider);
+
+    if (!state.isFormValid) {
+      List<String> missingFields = [];
+      if (state.fullName.isEmpty) missingFields.add('Name');
+      if (state.location == null || state.location!.isEmpty)
+        missingFields.add('Location');
+      if (state.availability.isEmpty) missingFields.add('Availability');
+
+      String errorMessage =
+          'Please complete these required fields: ${missingFields.join(', ')}';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final authUserAsync = ref.read(authUserProvider);
+      final user = authUserAsync.valueOrNull;
+
+      if (user == null) {
+        throw Exception('User not authenticated');
+      }
+
+      final mongodbService = ref.read(mongoDBServiceProvider);
+      debugPrint('📡 Checking MongoDB connection...');
+
+      final isConnected = await mongodbService.checkConnectivity();
+      if (!isConnected) {
+        throw Exception(
+            'Could not connect to MongoDB. Please check your connection.');
+      }
+
+      debugPrint('✅ MongoDB connection verified, creating profile...');
+
+      double skillLevelValue = switch (state.skillLevel) {
+        'Beginner' => 1.0,
+        'Intermediate' => 2.5,
+        'Advanced' => 4.0,
+        'Pro' => 5.0,
+        _ => 1.0,
+      };
+
+      final profile = PlayerProfile(
+        user: user.copyWith(displayName: state.fullName),
+        firstName: state.fullName.split(' ').first,
+        bio: state.bio,
+        skillLevel: skillLevelValue,
+        preferredGameTypes: [state.playStyle],
+        availability: state.availability,
+        skillTier: state.skillLevel,
+        preferredLocation: state.location ?? '',
+        experiencePoints: 10,
+        matchesPlayed: 0,
+        winRate: 0.0,
+        achievements: [],
+      );
+
+      final existingProfile = await mongodbService.getProfile(user.id);
+      bool success;
+
+      if (existingProfile != null) {
+        debugPrint('📝 Updating existing profile...');
+        success = await mongodbService.updateProfile(profile);
+      } else {
+        debugPrint('📝 Creating new profile...');
+        success = await mongodbService.createProfile(profile);
+      }
+
+      if (!success) {
+        throw Exception(
+            'Failed to ${existingProfile != null ? 'update' : 'create'} profile');
+      }
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Profile setup complete!'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      NavigationFixer.navigateToHomeAfterProfileUpdate(context, ref);
+    } catch (e) {
+      debugPrint('❌ Error in profile setup: $e');
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Retry',
+            onPressed: _saveProfile,
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+} // End of _ProfileSetupScreenState class

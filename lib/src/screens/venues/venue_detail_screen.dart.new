@@ -1,0 +1,1567 @@
+import 'dart:ui';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
+import '../../models/venue.dart';
+import '../../providers/venue_provider.dart';
+import 'venue_pricing_section.dart';
+
+class VenueDetailScreen extends ConsumerStatefulWidget {
+  final String venueId;
+
+  const VenueDetailScreen({Key? key, required this.venueId}) : super(key: key);
+
+  @override
+  ConsumerState<VenueDetailScreen> createState() => _VenueDetailScreenState();
+}
+
+class _VenueDetailScreenState extends ConsumerState<VenueDetailScreen> {
+  late PageController _imagePageController;
+  int _currentImageIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _imagePageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _imagePageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final venueAsyncValue = ref.watch(venueByIdProvider(widget.venueId));
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: venueAsyncValue.when(
+        data: (venue) {
+          if (venue == null) {
+            return const Center(child: Text('Venue not found'));
+          }
+          return _buildVenueDetail(context, venue);
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, stack) => Center(
+          child: Text('Error loading venue: $error'),
+        ),
+      ),
+      bottomNavigationBar: venueAsyncValue.when(
+        data: (venue) {
+          if (venue == null) return null;
+          return _buildBottomBar(context, venue);
+        },
+        loading: () => null,
+        error: (_, __) => null,
+      ),
+    );
+  }
+
+  Widget _buildVenueDetail(BuildContext context, Venue venue) {
+    final imageUrls =
+        venue.imageUrls.isNotEmpty ? venue.imageUrls : [venue.thumbnailUrl];
+    final shortDescription = venue.description.length > 120
+        ? '${venue.description.substring(0, 120)}...'
+        : venue.description;
+
+    // Calculate max height: screen height minus 100px from top
+    final screenHeight = MediaQuery.of(context).size.height;
+    final maxHeight = screenHeight - 100; // 100px from top
+    final maxChildSize =
+        (maxHeight / screenHeight).clamp(0.6, 0.9); // Ensure reasonable limits
+
+    return Stack(
+      children: [
+        // Hero image section with gradient overlay
+        Container(
+          height: MediaQuery.of(context).size.height * 0.5,
+          width: double.infinity,
+          child: Stack(
+            children: [
+              PageView.builder(
+                controller: _imagePageController,
+                itemCount: imageUrls.length,
+                onPageChanged: (index) {
+                  setState(() {
+                    _currentImageIndex = index;
+                  });
+                },
+                itemBuilder: (context, index) {
+                  return InteractiveViewer(
+                    minScale: 1.0,
+                    maxScale: 3.0,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        image: DecorationImage(
+                          image: NetworkImage(imageUrls[index]),
+                          fit: BoxFit.cover,
+                          onError: (_, __) {},
+                        ),
+                      ),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black.withOpacity(0.1),
+                            ],
+                            stops: const [0.0, 0.3, 1.0],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+
+        // Scrollable content with glass morphism - limited to 100px from top
+        DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          minChildSize: 0.6,
+          maxChildSize: maxChildSize, // Dynamic max to stop 100px from top
+          builder: (context, scrollController) {
+            return Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.95),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(32)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.15),
+                    blurRadius: 20,
+                    offset: const Offset(0, -5),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(32)),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.9),
+                      borderRadius:
+                          const BorderRadius.vertical(top: Radius.circular(32)),
+                    ),
+                    child: CustomScrollView(
+                      controller: scrollController,
+                      slivers: [
+                        // Main content
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(24, 20, 24, 100),
+                          sliver: SliverList(
+                            delegate: SliverChildListDelegate([
+                              // Venue title and details
+                              _buildVenueHeader(venue),
+                              const SizedBox(height: 24),
+
+                              // Rating and reviews
+                              _buildRatingSection(venue),
+                              const SizedBox(height: 32),
+
+                              // Divider
+                              Divider(color: Colors.grey[200], thickness: 1),
+                              const SizedBox(height: 32),
+                              
+                              // Pricing Information
+                              VenuePricingSection(venue: venue),
+                              const SizedBox(height: 32),
+                              
+                              // Divider
+                              Divider(color: Colors.grey[200], thickness: 1),
+                              const SizedBox(height: 32),
+
+                              // Peak Hours
+                              _buildPeakHoursSection(venue),
+                              const SizedBox(height: 32),
+
+                              // Divider
+                              Divider(color: Colors.grey[200], thickness: 1),
+                              const SizedBox(height: 32),
+
+                              // Host information
+                              _buildHostSection(venue),
+                              const SizedBox(height: 32),
+
+                              // Divider
+                              Divider(color: Colors.grey[200], thickness: 1),
+                              const SizedBox(height: 32),
+
+                              // Description
+                              _buildDescriptionSection(venue, shortDescription),
+                              const SizedBox(height: 32),
+
+                              // Divider
+                              Divider(color: Colors.grey[200], thickness: 1),
+                              const SizedBox(height: 32),
+
+                              // Features
+                              _buildFeaturesSection(venue),
+                              const SizedBox(height: 32),
+
+                              // Divider
+                              Divider(color: Colors.grey[200], thickness: 1),
+                              const SizedBox(height: 32),
+
+                              // Location
+                              _buildLocationSection(venue),
+                            ]),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+
+        // Glass navigation bar with back button
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: Container(
+            height: 100,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withOpacity(0.3),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    // Back button with glass effect
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: ClipOval(
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: IconButton(
+                              icon: const Icon(
+                                Icons.arrow_back,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                              onPressed: () => context.go('/venues'),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    // Image counter with glass effect
+                    if (imageUrls.length > 1)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.4),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.2),
+                            width: 1,
+                          ),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                            child: Text(
+                              '${_currentImageIndex + 1} / ${imageUrls.length}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVenueHeader(Venue venue) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // NEW FEATURE ALERT - Peak Hours Indicator at the very top
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 20),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+          decoration: BoxDecoration(
+            color: Colors.red,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.red.withOpacity(0.4),
+                spreadRadius: 1,
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.new_releases, color: Colors.white, size: 24),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'NEW: Check venue peak hours below!',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              Icon(Icons.arrow_downward, color: Colors.white, size: 20),
+            ],
+          ),
+        ),
+
+        Text(
+          venue.name,
+          style: const TextStyle(
+            fontSize: 32,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF1A1A1A),
+            height: 1.2,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Icon(
+              Icons.location_on_outlined,
+              size: 16,
+              color: Colors.grey[600],
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                venue.address,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF10B981).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: const Color(0xFF10B981).withOpacity(0.2),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF10B981),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Up to ${venue.maxPlayers} players',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF10B981),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRatingSection(Venue venue) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey[200]!, width: 1),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.star_rounded,
+                    color: Colors.amber,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      venue.rating.toString(),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1A1A1A),
+                      ),
+                    ),
+                    Text(
+                      '${venue.reviewCount} reviews',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[300]!, width: 1),
+            ),
+            child: const Text(
+              'Guest favorite',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF1A1A1A),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPeakHoursSection(Venue venue) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.red.shade400, Colors.deepOrange.shade300],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.red.withOpacity(0.3),
+            spreadRadius: 2,
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.access_time_filled,
+                  color: Colors.white, size: 28),
+              const SizedBox(width: 12),
+              const Text(
+                'VENUE PEAK HOURS',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text(
+              'Best times to visit based on crowd levels',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.white,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade600,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text(
+                        'TODAY',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Tap for hourly breakdown',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Builder(
+                      builder: (context) {
+                        // Define peak hours data
+                        final Map<int, int> peakData = {
+                          6: 2, // 6 AM - Quiet
+                          7: 2, // 7 AM - Quiet
+                          8: 4, // 8 AM - Moderate
+                          9: 3, // 9 AM - Quiet
+                          10: 3, // 10 AM - Quiet
+                          11: 4, // 11 AM - Moderate
+                          12: 6, // 12 PM - Moderate
+                          13: 7, // 1 PM - Moderate
+                          14: 5, // 2 PM - Moderate
+                          15: 4, // 3 PM - Moderate
+                          16: 3, // 4 PM - Quiet
+                          17: 5, // 5 PM - Moderate
+                          18: 8, // 6 PM - Packed
+                          19: 9, // 7 PM - Packed
+                          20: 10, // 8 PM - Packed
+                          21: 9, // 9 PM - Packed
+                          22: 7, // 10 PM - Moderate
+                          23: 5, // 11 PM - Moderate
+                        };
+
+                        // Calculate average intensity for each time period
+                        double morningAvg = 0, afternoonAvg = 0, eveningAvg = 0;
+                        int morningCount = 0,
+                            afternoonCount = 0,
+                            eveningCount = 0;
+
+                        // Morning (6-11 AM)
+                        for (int i = 6; i <= 11; i++) {
+                          if (peakData.containsKey(i)) {
+                            morningAvg += peakData[i]!;
+                            morningCount++;
+                          }
+                        }
+                        morningAvg =
+                            morningCount > 0 ? morningAvg / morningCount : 0;
+
+                        // Afternoon (12-5 PM)
+                        for (int i = 12; i <= 17; i++) {
+                          if (peakData.containsKey(i)) {
+                            afternoonAvg += peakData[i]!;
+                            afternoonCount++;
+                          }
+                        }
+                        afternoonAvg = afternoonCount > 0
+                            ? afternoonAvg / afternoonCount
+                            : 0;
+
+                        // Evening (6-11 PM)
+                        for (int i = 18; i <= 23; i++) {
+                          if (peakData.containsKey(i)) {
+                            eveningAvg += peakData[i]!;
+                            eveningCount++;
+                          }
+                        }
+                        eveningAvg =
+                            eveningCount > 0 ? eveningAvg / eveningCount : 0;
+
+                        // Get status and color based on average
+                        String morningStatus = morningAvg <= 3
+                            ? 'Quiet'
+                            : morningAvg <= 7
+                                ? 'Moderate'
+                                : 'Packed';
+                        String afternoonStatus = afternoonAvg <= 3
+                            ? 'Quiet'
+                            : afternoonAvg <= 7
+                                ? 'Moderate'
+                                : 'Packed';
+                        String eveningStatus = eveningAvg <= 3
+                            ? 'Quiet'
+                            : eveningAvg <= 7
+                                ? 'Moderate'
+                                : 'Packed';
+
+                        Color morningColor = morningAvg <= 3
+                            ? Colors.green
+                            : morningAvg <= 7
+                                ? Colors.orange
+                                : Colors.red;
+                        Color afternoonColor = afternoonAvg <= 3
+                            ? Colors.green
+                            : afternoonAvg <= 7
+                                ? Colors.orange
+                                : Colors.red;
+                        Color eveningColor = eveningAvg <= 3
+                            ? Colors.green
+                            : eveningAvg <= 7
+                                ? Colors.orange
+                                : Colors.red;
+
+                        return Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            _buildPeakTimeItem(
+                                'Morning', morningStatus, morningColor),
+                            _buildPeakTimeItem(
+                                'Afternoon', afternoonStatus, afternoonColor),
+                            _buildPeakTimeItem(
+                                'Evening', eveningStatus, eveningColor),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPeakTimeItem(String timeOfDay, String status, Color color) {
+    return GestureDetector(
+      onTap: () {
+        _showDetailedHoursDialog(timeOfDay);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color),
+        ),
+        child: Column(
+          children: [
+            Text(
+              timeOfDay,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              status,
+              style: TextStyle(
+                fontSize: 12,
+                color: color,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Icon(
+              Icons.info_outline,
+              size: 16,
+              color: color,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDetailedHoursDialog(String timeOfDay) {
+    // Define peak hours data - intensity level 1-10 (1-3: Quiet, 4-7: Moderate, 8-10: Packed)
+    final Map<int, int> peakData = {
+      6: 2, // 6 AM - Quiet
+      7: 2, // 7 AM - Quiet
+      8: 4, // 8 AM - Moderate
+      9: 3, // 9 AM - Quiet
+      10: 3, // 10 AM - Quiet
+      11: 4, // 11 AM - Moderate
+      12: 6, // 12 PM - Moderate
+      13: 7, // 1 PM - Moderate
+      14: 5, // 2 PM - Moderate
+      15: 4, // 3 PM - Moderate
+      16: 3, // 4 PM - Quiet
+      17: 5, // 5 PM - Moderate
+      18: 8, // 6 PM - Packed
+      19: 9, // 7 PM - Packed
+      20: 10, // 8 PM - Packed
+      21: 9, // 9 PM - Packed
+      22: 7, // 10 PM - Moderate
+      23: 5, // 11 PM - Moderate
+    };
+
+    // Helper function to determine status and color based on intensity level
+    Map<String, dynamic> getStatusAndColor(int intensity) {
+      if (intensity <= 3) {
+        return {'status': 'Quiet', 'color': Colors.green};
+      } else if (intensity <= 7) {
+        return {'status': 'Moderate', 'color': Colors.orange};
+      } else {
+        return {'status': 'Packed', 'color': Colors.red};
+      }
+    }
+
+    // Create hours data based on time period
+    List<Map<String, dynamic>> hoursData = [];
+    List<int> hours = [];
+
+    if (timeOfDay == 'Morning') {
+      hours = [6, 7, 8, 9, 10, 11]; // Morning hours (6 AM - 11 AM)
+    } else if (timeOfDay == 'Afternoon') {
+      hours = [12, 13, 14, 15, 16, 17]; // Afternoon hours (12 PM - 5 PM)
+    } else {
+      // Evening
+      hours = [18, 19, 20, 21, 22, 23]; // Evening hours (6 PM - 11 PM)
+    }
+
+    for (int hour in hours) {
+      final intensity = peakData[hour] ?? 1;
+      final statusInfo = getStatusAndColor(intensity);
+      final formattedHour = hour == 0
+          ? '12:00 AM'
+          : (hour < 12
+              ? '$hour:00 AM'
+              : (hour == 12 ? '12:00 PM' : '${hour - 12}:00 PM'));
+
+      hoursData.add({
+        'hour': formattedHour,
+        'status': statusInfo['status'],
+        'color': statusInfo['color'],
+        'intensity': intensity,
+        'rawHour': hour,
+      });
+    }
+
+    // Current hour
+    final now = DateTime.now();
+    final currentHour = now.hour;
+    final formattedCurrentHour = DateFormat('h:00 a').format(now);
+
+    // Calculate current status based on time
+    final currentIntensity = peakData[currentHour] ?? 1;
+    final currentStatusInfo = getStatusAndColor(currentIntensity);
+    final currentStatusColor = currentStatusInfo['color'];
+    final currentStatusText = currentStatusInfo['status'];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.65,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.95),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.9),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Handle bar
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 12),
+                      height: 4,
+                      width: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+                    child: Row(
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            RichText(
+                              text: TextSpan(
+                                children: [
+                                  const TextSpan(
+                                    text: 'Detailed Hours: ',
+                                    style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF1A1A1A),
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: timeOfDay,
+                                    style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w700,
+                                      color: timeOfDay == 'Morning'
+                                          ? Colors.green
+                                          : timeOfDay == 'Afternoon'
+                                              ? Colors.orange
+                                              : Colors.red,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Today, ${DateFormat('MMMM d').format(now)}',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Spacer(),
+                        // Close button
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            shape: BoxShape.circle,
+                          ),
+                          child: IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: Icon(Icons.close,
+                                color: Colors.grey[600], size: 20),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  Divider(color: Colors.grey[200], thickness: 1),
+
+                  // Current time indicator
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: currentStatusColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: currentStatusColor.withOpacity(0.2),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.access_time,
+                            size: 20,
+                            color: currentStatusColor,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: RichText(
+                              text: TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: 'Current Time: $formattedCurrentHour',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w500,
+                                      color: currentStatusColor,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: ' • $currentStatusText',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: currentStatusColor,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Hours list
+                  Expanded(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                      itemCount: hoursData.length,
+                      separatorBuilder: (context, index) => Divider(
+                        color: Colors.grey[200],
+                        height: 1,
+                      ),
+                      itemBuilder: (context, index) {
+                        final hourData = hoursData[index];
+                        final hour = hourData['hour'];
+                        final status = hourData['status'];
+                        final color = hourData['color'];
+                        final rawHour = hourData['rawHour'];
+
+                        // Check if this is the current hour based on the raw hour value
+                        bool isCurrentHour = rawHour == currentHour;
+
+                        return Container(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          decoration: BoxDecoration(
+                            color: isCurrentHour
+                                ? color.withOpacity(0.05)
+                                : Colors.transparent,
+                            borderRadius: isCurrentHour
+                                ? BorderRadius.circular(12)
+                                : null,
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: color,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Text(
+                                hour,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF1A1A1A),
+                                ),
+                              ),
+                              const Spacer(),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: color.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Text(
+                                  status,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: color,
+                                  ),
+                                ),
+                              ),
+                              if (isCurrentHour) ...[
+                                const SizedBox(width: 12),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: const Text(
+                                    'Now',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.blue,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+
+                  // Legend
+                  Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _buildLegendItem('Quiet', Colors.green),
+                        _buildLegendItem('Moderate', Colors.orange),
+                        _buildLegendItem('Packed', Colors.red),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLegendItem(String label, Color color) {
+    return Row(
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Color(0xFF1A1A1A),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHostSection(Venue venue) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Hosted by',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1A1A1A),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.grey[200]!, width: 2),
+                image: venue.hostImageUrl != null
+                    ? DecorationImage(
+                        image: NetworkImage(venue.hostImageUrl!),
+                        fit: BoxFit.cover,
+                        onError: (_, __) {},
+                      )
+                    : null,
+              ),
+              child: venue.hostImageUrl == null
+                  ? Icon(Icons.person, color: Colors.grey[400], size: 28)
+                  : null,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    venue.hostName,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF1A1A1A),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${venue.hostYearsOfHosting} years hosting',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDescriptionSection(Venue venue, String shortDescription) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'About this place',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1A1A1A),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          shortDescription,
+          style: TextStyle(
+            fontSize: 16,
+            height: 1.6,
+            color: Colors.grey[700],
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+        if (venue.description.length > 120) ...[
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: () => _showFullDescription(context, venue.description),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: const Text(
+                'Show more',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF1A1A1A),
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildFeaturesSection(Venue venue) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'What this place offers',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1A1A1A),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: venue.features.map((feature) {
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Colors.grey[200]!, width: 1),
+              ),
+              child: Text(
+                feature,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF1A1A1A),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLocationSection(Venue venue) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Where you\'ll be',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1A1A1A),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          height: 200,
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey[200]!, width: 1),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Stack(
+              children: [
+                Container(
+                  color: Colors.grey[100],
+                  child: const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.map,
+                          size: 48,
+                          color: Colors.grey,
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Map view coming soon',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Icon(
+              Icons.location_on_outlined,
+              size: 20,
+              color: Colors.grey[600],
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                venue.address,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF1A1A1A),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBottomBar(BuildContext context, Venue venue) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.95),
+        border: Border(
+          top: BorderSide(color: Colors.grey[200]!, width: 1),
+        ),
+      ),
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.9),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            const Text(
+                              'from ',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                            Text(
+                              '\$${venue.pricePerHour}/hour',
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${venue.capacity} tables available',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => _showBookingDialog(context, venue),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF10B981),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 12),
+                      textStyle: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('Reserve'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showFullDescription(BuildContext context, String description) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.8,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.95),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.9),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  // Handle bar
+                  Container(
+                    margin: const EdgeInsets.only(top: 12),
+                    height: 4,
+                    width: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'About this place',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF1A1A1A),
+                            ),
+                          ),
+                        ),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            shape: BoxShape.circle,
+                          ),
+                          child: IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: Icon(
+                              Icons.close,
+                              color: Colors.grey[600],
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Description
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Text(
+                        description,
+                        style: TextStyle(
+                          fontSize: 16,
+                          height: 1.6,
+                          color: Colors.grey[700],
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showBookingDialog(BuildContext context, Venue venue) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => BookingBottomSheet(venue: venue),
+    );
+  }
+}
+
+class BookingBottomSheet extends StatefulWidget {
+  final Venue venue;
+
+  const BookingBottomSheet({Key? key, required this.venue}) : super(key: key);
+
+  @override
+  State<BookingBottomSheet> createState() => _BookingBottomSheetState();
+}
+
+class _BookingBottomSheetState extends State<BookingBottomSheet> {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Booking coming soon',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 48),
+            ),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+}

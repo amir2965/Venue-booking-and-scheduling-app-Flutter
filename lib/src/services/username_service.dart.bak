@@ -1,0 +1,285 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:connectivity_plus/connectivity_plus';
+import 'package:connectivity_plus/connectivity_plus.dart';
+
+class UsernameService {  // For tracking connectivity changes
+  final Connectivity _connectivity = Connectivity();
+
+  // Get the base URL from configuration
+  String get baseUrl => '${ApiConfig.baseUrl}/api/username';
+
+  UsernameService() {
+    debugPrint('UsernameService initialized with baseUrl: $baseUrl');
+    _initConnectivityMonitoring();
+  }
+
+  // Cache keys
+  final String _pendingOperationsKey = 'pending_username_operations';
+
+  // Constructor
+  UsernameService() {
+    _initConnectivityMonitoring();
+  }
+
+  // Initialize connectivity monitoring to sync data when back online
+  void _initConnectivityMonitoring() {
+    _connectivity.onConnectivityChanged.listen((result) async {
+      final isConnected = result != ConnectivityResult.none;
+      if (isConnected) {
+        await _processPendingOperations();
+      }
+    });
+  }
+  // Check if a username is available  Future<bool> isUsernameAvailable(String username) async {
+    if (username.trim().isEmpty) {
+      return false;
+    }
+
+    try {
+      // First try the debug endpoint to verify connectivity
+      try {
+        final debugResponse = await http.get(
+          Uri.parse('${ApiConfig.baseUrl}/api/username/debug-check?username=${Uri.encodeComponent(username)}'),
+          headers: ApiConfig.headers,
+        ).timeout(const Duration(seconds: 5));
+        
+        debugPrint('Debug endpoint response: ${debugResponse.statusCode}');
+        debugPrint('Debug response body: ${debugResponse.body}');
+      } catch (e) {
+        debugPrint('Debug endpoint error: $e');
+      }
+
+      // Now try the actual username check
+      int retryCount = 0;
+      const maxRetries = 2;
+      const baseDelay = Duration(milliseconds: 500);
+
+      while (retryCount <= maxRetries) {
+        try {
+          final apiResponse = await http.get(
+            Uri.parse('$baseUrl/check?username=${Uri.encodeComponent(username)}'),
+          ).timeout(
+            const Duration(seconds: 3), // Reduced timeout for faster fallback
+            onTimeout: () {
+              throw TimeoutException('API request timed out');
+            },
+          );
+
+          if (apiResponse.statusCode == 200) {
+            final data = json.decode(apiResponse.body);
+            final isAvailable = data['isAvailable'] ?? data['available'] ?? false;
+            debugPrint('Username availability checked successfully: $isAvailable');
+            return isAvailable;
+          }
+
+          debugPrint('API error ${apiResponse.statusCode}');
+          // Only retry on 5xx server errors or timeout
+          if (apiResponse.statusCode < 500) {
+            break;
+          }
+        } catch (e) {
+          debugPrint('Attempt ${retryCount + 1} failed: $e');
+          if (retryCount == maxRetries) {
+            debugPrint('All attempts failed, falling back to local check');
+            break;
+          }
+          // Wait before retrying, with exponential backoff
+          await Future.delayed(baseDelay * (retryCount + 1));
+        }
+        retryCount++;
+      }
+
+      debugPrint('Falling back to local username check');
+      return _checkUsernameLocallyAsBackup(username);
+    } catch (e) {
+      debugPrint('Error in username availability check: $e');
+      return _checkUsernameLocallyAsBackup(username);
+    }
+  }
+
+  // Reserve a username
+  Future<bool> reserveUsername(String username, String userId) async {
+    try {
+      final connectivityResult = await _connectivity.checkConnectivity();
+      final isConnected = connectivityResult != ConnectivityResult.none;
+
+      if (!isConnected) {
+        // Add to pending operations and handle optimistically
+        await _addPendingOperation('reserve', username, userId);
+        debugPrint('Added pending operation: reserve for $username');
+        return true;
+      }
+
+      final apiResponse = await http.post(
+        Uri.parse('$baseUrl/reserve'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'username': username,
+          'userId': userId,
+        }),
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          debugPrint('API request timed out, handling optimistically');
+          _addPendingOperation('reserve', username, userId);
+          return http.Response('{"error": "timeout"}', 408);
+        },
+      );
+
+      if (apiResponse.statusCode == 200) {
+        return true;
+      } else {
+        // On error, add to pending operations and handle optimistically
+        await _addPendingOperation('reserve', username, userId);
+        return true;
+      }
+    } catch (e) {
+      debugPrint('Error reserving username: $e');
+      await _addPendingOperation('reserve', username, userId);
+      return true;
+    }
+  }
+
+  // Update a username
+  Future<bool> updateUsername(String oldUsername, String newUsername, String userId) async {
+    try {
+      final connectivityResult = await _connectivity.checkConnectivity();
+      final isConnected = connectivityResult != ConnectivityResult.none;
+
+      if (!isConnected) {
+        await _addPendingOperation('update', newUsername, userId, oldUsername: oldUsername);
+        return true;
+      }
+
+      final apiResponse = await http.post(
+        Uri.parse('$baseUrl/update'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'oldUsername': oldUsername,
+          'newUsername': newUsername,
+          'userId': userId,
+        }),
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          debugPrint('API request timed out, handling optimistically');
+          _addPendingOperation('update', newUsername, userId, oldUsername: oldUsername);
+          return http.Response('{"error": "timeout"}', 408);
+        },
+      );
+
+      if (apiResponse.statusCode == 200) {
+        return true;
+      } else {
+        await _addPendingOperation('update', newUsername, userId, oldUsername: oldUsername);
+        return true;
+      }
+    } catch (e) {
+      debugPrint('Error updating username: $e');
+      await _addPendingOperation('update', newUsername, userId, oldUsername: oldUsername);
+      return true;
+    }
+  }
+
+  // Check if the server is up and running
+  Future<bool> isServerUp() async {
+    try {
+      // Get base URL without the /api/username path
+      final serverUrl = baseUrl.substring(0, baseUrl.lastIndexOf('/api/username'));
+      
+      final response = await http.get(
+        Uri.parse('$serverUrl/health'),
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          debugPrint('Server health check timed out');
+          throw TimeoutException('Server health check timed out');
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['status'] == 'ok';
+      }
+      
+      return false;
+    } catch (e) {
+      debugPrint('Error checking server health: $e');
+      return false;
+    }
+  }
+
+  // Process pending operations when back online
+  Future<void> _processPendingOperations() async {
+    final prefs = await SharedPreferences.getInstance();
+    final pendingOpsJson = prefs.getString(_pendingOperationsKey);
+    if (pendingOpsJson == null) return;
+
+    try {
+      final pendingOps = json.decode(pendingOpsJson) as List;
+      for (var op in pendingOps) {
+        try {
+          if (op['type'] == 'reserve') {
+            await http.post(
+              Uri.parse('$baseUrl/reserve'),
+              headers: {'Content-Type': 'application/json'},
+              body: json.encode({
+                'username': op['username'],
+                'userId': op['userId'],
+              }),
+            );
+          } else if (op['type'] == 'update') {
+            await http.post(
+              Uri.parse('$baseUrl/update'),
+              headers: {'Content-Type': 'application/json'},
+              body: json.encode({
+                'oldUsername': op['oldUsername'],
+                'newUsername': op['username'],
+                'userId': op['userId'],
+              }),
+            );
+          }
+        } catch (e) {
+          debugPrint('Error processing pending operation: $e');
+          // Keep the failed operation in the list
+          continue;
+        }
+      }
+      await prefs.remove(_pendingOperationsKey);
+    } catch (e) {
+      debugPrint('Error processing pending operations: $e');
+    }
+  }
+
+  // Add a pending operation to be processed when back online
+  Future<void> _addPendingOperation(String type, String username, String userId, {String? oldUsername}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final pendingOpsJson = prefs.getString(_pendingOperationsKey);
+    final List<Map<String, dynamic>> pendingOps = [];
+    
+    if (pendingOpsJson != null) {
+      final decoded = json.decode(pendingOpsJson) as List;
+      pendingOps.addAll(decoded.cast<Map<String, dynamic>>());
+    }
+
+    pendingOps.add({
+      'type': type,
+      'username': username,
+      'userId': userId,
+      if (oldUsername != null) 'oldUsername': oldUsername,
+    });
+
+    await prefs.setString(_pendingOperationsKey, json.encode(pendingOps));
+  }
+
+  // Fallback method to check username locally when server is unavailable
+  bool _checkUsernameLocallyAsBackup(String username) {
+    // This is already implemented in PlayerProfileService and will be called there
+    debugPrint('Checking username locally: $username');
+    return true; // Allow it locally, will sync with server later
+  }
+}

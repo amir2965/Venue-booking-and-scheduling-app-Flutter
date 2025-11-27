@@ -1,0 +1,64 @@
+name: billiards_hub
+description: A Flutter app for booking, matching, tournaments, store & gamification.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  connectivity_plus: ^5.0.0
+  cupertino_icons: ^1.0.6
+  flutter_riverpod: ^2.4.0
+  http: ^1.1.0
+  flutter_svg: ^2.0.7
+  flutter_local_notifications: ^15.1.0+1
+  go_router: ^12.0.0
+  freezed: ^2.4.1
+  freezed_annotation: ^2.4.1
+  json_serializable: ^6.7.1
+  json_annotation: ^4.8.1
+  flutter_animate: ^4.2.0  # For smooth animations
+  cached_network_image: ^3.3.0  # For image caching
+  shared_preferences: ^2.2.0  # For local storage
+  google_fonts: ^5.1.0  # For custom typography
+  flutter_rating_bar: ^4.0.1  # For player rating system  lottie: ^2.6.0  # For reward animations
+  intl: ^0.18.1  # For date formatting and localization
+  flutter_card_swiper: ^6.0.0  # For Tinder-style swipe cards
+  card_swiper: ^3.0.1  # For Tinder-style swipe cards
+  confetti: ^0.7.0  # For match celebration effects
+  google_sign_in: ^6.1.5  # For Google authentication
+  flutter_facebook_auth: ^6.0.2  # For Facebook authentication
+  geolocator: ^10.1.0  # For location services
+  image_picker: ^1.0.4  # For profile image picking
+  image: ^4.1.3  # For image processing and resizing
+  crypto: ^3.0.3  # For generating cache keys
+  path: ^1.8.3  # For file path operations
+  path_provider: ^2.1.4  # For getting app directories
+    # Firebase packages
+  firebase_core: ^2.24.2
+  firebase_auth: ^4.15.3
+  cloud_firestore: ^4.13.6
+  firebase_storage: ^11.5.6
+  firebase_analytics: ^10.7.4
+  js: ^0.6.4
+  mongo_dart: ^0.10.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.3
+  build_runner: ^2.4.6
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.3.2
+  test: ^1.24.9
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/animations/
