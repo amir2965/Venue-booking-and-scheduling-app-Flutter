@@ -57,3 +57,7 @@ lib/firebase_options.dart
 !.env.example
 !firebase_options.dart.example
 !google-services.json.example
+
+# Node modules
+node_modules/
+server/node_modules/

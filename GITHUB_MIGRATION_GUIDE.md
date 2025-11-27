@@ -110,9 +110,9 @@ Anyone cloning your repository will need to:
 
 Run this command to verify no credentials are being committed:
 \\\ash
-git grep -i "AIzaSyAt05j02Wh4711p8EZb4hc7RFz1i42rUzc" 
-git grep -i "SKLpVgXjQLo1LbnP"
-git grep -i "amirmahdi82sf"
+git grep -i "YOUR_ACTUAL_API_KEY" 
+git grep -i "YOUR_ACTUAL_PASSWORD"
+git grep -i "YOUR_ACTUAL_USERNAME"
 \\\
 
 If any results appear, those files need to be removed!

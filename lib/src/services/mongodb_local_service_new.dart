@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:mongo_dart/mongo_dart.dart';
 import '../models/player_profile.dart';
@@ -19,7 +19,7 @@ class MongoDBLocalService implements MongoDBServiceBase {
   MongoDBLocalService() {
     // In production, these should be fetched from environment variables or secure storage
     const username = String.fromEnvironment('MONGODB_USERNAME',
-        defaultValue: 'amirmahdi82sf');
+        defaultValue: 'your_mongodb_username');
     const password = String.fromEnvironment('MONGODB_PASSWORD',
         defaultValue: 'nmBGXaUUTiSOYwL6');
     const cluster = String.fromEnvironment('MONGODB_CLUSTER',
@@ -38,7 +38,7 @@ class MongoDBLocalService implements MongoDBServiceBase {
   Future<void> initialize() async {
     if (_db != null) return;
     try {
-      debugPrint('🔄 Connecting to MongoDB Atlas cluster');
+      debugPrint('ðŸ”„ Connecting to MongoDB Atlas cluster');
 
       if (kIsWeb) {
         // Configure MongoDB for web environment
@@ -53,7 +53,7 @@ class MongoDBLocalService implements MongoDBServiceBase {
       }
 
       _isConnected = true;
-      debugPrint('✅ Connected to MongoDB Atlas cluster');
+      debugPrint('âœ… Connected to MongoDB Atlas cluster');
 
       // Create collections and indexes if they don't exist
       final collections = await _db!.getCollectionNames();
@@ -68,7 +68,7 @@ class MongoDBLocalService implements MongoDBServiceBase {
       }
     } catch (e) {
       _isConnected = false;
-      debugPrint('❌ Error connecting to MongoDB: $e');
+      debugPrint('âŒ Error connecting to MongoDB: $e');
       rethrow;
     }
   }
@@ -100,7 +100,7 @@ class MongoDBLocalService implements MongoDBServiceBase {
       });
       return true;
     } catch (e) {
-      debugPrint('❌ Error creating profile: $e');
+      debugPrint('âŒ Error creating profile: $e');
       return false;
     }
   }
@@ -114,7 +114,7 @@ class MongoDBLocalService implements MongoDBServiceBase {
       }
       return null;
     } catch (e) {
-      debugPrint('❌ Error getting profile: $e');
+      debugPrint('âŒ Error getting profile: $e');
       return null;
     }
   }
@@ -128,7 +128,7 @@ class MongoDBLocalService implements MongoDBServiceBase {
       );
       return result.isSuccess;
     } catch (e) {
-      debugPrint('❌ Error updating profile: $e');
+      debugPrint('âŒ Error updating profile: $e');
       return false;
     }
   }
@@ -149,7 +149,7 @@ class MongoDBLocalService implements MongoDBServiceBase {
 
       return profiles;
     } catch (e) {
-      debugPrint('❌ Error getting liked profiles: $e');
+      debugPrint('âŒ Error getting liked profiles: $e');
       return [];
     }
   }
@@ -164,7 +164,7 @@ class MongoDBLocalService implements MongoDBServiceBase {
       });
       return true;
     } catch (e) {
-      debugPrint('❌ Error adding liked profile: $e');
+      debugPrint('âŒ Error adding liked profile: $e');
       return false;
     }
   }
@@ -185,7 +185,7 @@ class MongoDBLocalService implements MongoDBServiceBase {
           .map((doc) => PlayerProfile.fromJson(doc['profile']))
           .toList();
     } catch (e) {
-      debugPrint('❌ Error getting recommended profiles: $e');
+      debugPrint('âŒ Error getting recommended profiles: $e');
       return [];
     }
   }
@@ -198,7 +198,7 @@ class MongoDBLocalService implements MongoDBServiceBase {
       );
       return result == null;
     } catch (e) {
-      debugPrint('❌ Error checking username availability: $e');
+      debugPrint('âŒ Error checking username availability: $e');
       return false;
     }
   }

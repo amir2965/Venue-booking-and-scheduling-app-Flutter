@@ -9,7 +9,7 @@ echo "Checking for API keys and passwords..."
 ISSUES=0
 
 # Check for Firebase API key
-if git grep -q "AIzaSyAt05j02Wh4711p8EZb4hc7RFz1i42rUzc" 2>/dev/null; then
+if git grep -q "YOUR_ACTUAL_FIREBASE_KEY" 2>/dev/null; then
     echo " FOUND: Firebase API key in tracked files!"
     ISSUES=
 else
@@ -17,7 +17,7 @@ else
 fi
 
 # Check for MongoDB password
-if git grep -q "SKLpVgXjQLo1LbnP" 2>/dev/null; then
+if git grep -q "YOUR_ACTUAL_MONGODB_PASSWORD" 2>/dev/null; then
     echo " FOUND: MongoDB password in tracked files!"
     ISSUES=
 else
@@ -25,7 +25,7 @@ else
 fi
 
 # Check for MongoDB username
-if git grep -q "amirmahdi82sf" 2>/dev/null; then
+if git grep -q "YOUR_ACTUAL_MONGODB_USERNAME" 2>/dev/null; then
     echo " FOUND: MongoDB username in tracked files!"
     ISSUES=
 else
