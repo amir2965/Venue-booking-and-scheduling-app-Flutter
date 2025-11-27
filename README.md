@@ -115,24 +115,11 @@ Example files are provided with \.example\ extension.
 - [Web MongoDB Implementation](./docs/web_mongodb_implementation.md)
 - [Notification API](./docs/notification_api_specification.md)
 
-##  Contributing
-
-1. Fork the repository
-2. Create a feature branch (\git checkout -b feature/amazing-feature\)
-3. Commit changes (\git commit -m 'Add amazing feature'\)
-4. Push to branch (\git push origin feature/amazing-feature\)
-5. Open a Pull Request
 
 ##  License
 
 MIT License - see LICENSE file for details
 
-##  Support
-
-- Create an issue for bug reports
-- Discussion board for questions
-- Pull requests welcome!
-
 ---
 
-Made with  using Flutter
+Made with Flutter
